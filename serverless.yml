@@ -1,0 +1,67 @@
+service: sns-worker
+
+provider:
+  name: aws
+  runtime: nodejs6.10
+  vpc:
+    securityGroupIds:
+      - sg-794c201d
+    subnetIds:
+      - subnet-1bad9242
+      #- subnet2
+  stage: dev
+  region: us-west-1
+  environment:
+    # need to declare the topic in the environment
+    # so that it can be referenced in the code
+    # through process.env.TOPIC1
+    TOPIC1_ARN: { "Fn::Join" : [":", ["arn:aws:sns:${self:custom.region}", { "Ref" : "AWS::AccountId" }, "${self:custom.topic1}" ] ]  }
+
+  # to allow the role the lambda runs on to access the objects
+  iamRoleStatements:
+    # bucket 1
+    - Effect: "Allow"
+      Action:
+        - "s3:*"
+      Resource: "arn:aws:s3:::${self:custom.bucket1}/*"
+    # topic 1
+    - Effect: "Allow"
+      Action:
+        - SNS:Publish
+      Resource: { "Fn::Join" : [":", ["arn:aws:sns:${self:custom.region}", { "Ref" : "AWS::AccountId" }, "${self:custom.topic1}" ] ]  }
+
+
+custom:
+  stage: ${opt:stage, self:provider.stage}
+  region: ${opt:region, self:provider.region}
+  bucket1: "${self:custom.stage}-plum-test-bucket1"
+  topic1: "topic1-${self:custom.stage}"
+  prune:
+    automatic: true
+    number: 3
+
+plugins:
+  - serverless-offline
+  - serverless-prune-plugin
+  - serverless-external-s3-event
+
+package:
+  include:
+    - node_modules/**
+
+functions:
+  handleS3Event:
+    handler: handler.handleS3Event
+    events:
+      # method will subscribe to s3 for new objects added
+      # this will create a new bucket
+      - s3: 
+          bucket: ${self:custom.bucket1}
+          event: s3:ObjectCreated:*
+      # method will also dispatch the topic
+
+  handleTopic:
+    handler: handler.handleTopic
+    events:
+      # this will subscribe to the topic
+      - sns: ${self:custom.topic1}
